@@ -4,8 +4,17 @@ permissions: read-all
 on:
   workflow_dispatch:
 jobs:
-  example-job:
+  build-job:
     runs-on: ubuntu-latest
     steps:
-      - name: Run hello world
-        run: echo "🎉 Step of the job is running on ${{ runner.os }}!"
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-dotnet-app
+        id: build
+        with:
+          folder-path: apps/uptodate-app
+      - uses: actions/upload-artifact@v4
+        with:
+          path: ${{ steps.build.outputs.output-directory-path }}
+
+  greeter-job:
+    uses: ./.github/workflows/greeter.yml
