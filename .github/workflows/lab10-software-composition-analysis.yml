@@ -3,9 +3,87 @@ run-name: Lab10 - ${{ github.actor }} is finding vulns🚀
 permissions: read-all
 on:
   workflow_dispatch:
+    inputs:
+      path:
+        type: choice
+        description: "Path to the app"
+        options:
+          - apps/uptodate-app
+          - apps/vulnerable-app
+
+env:
+  APP_PATH: ${{ github.event.inputs.path }}
+
 jobs:
-  example-job:
+  owasp-dependency-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Run hello world
-        run: echo "🎉 Step of the job is running on ${{ runner.os }}!"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ./.github/actions/build-dotnet-app
+        with:
+          folder-path: ${{env.APP_PATH}}
+      - name: Depcheck
+        uses: dependency-check/Dependency-Check_Action@main
+        id: Depcheck
+        with:
+          project: "test"
+          path: ${{env.APP_PATH}}
+          format: "HTML"
+          out: "reports" # this is the default, no need to specify unless you wish to override it
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+      - name: Upload Test results
+        uses: actions/upload-artifact@master
+        if: always()
+        with:
+          name: Depcheck report
+          path: ${{github.workspace}}/reports
+
+  dotnet-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ./.github/actions/build-dotnet-app
+        with:
+          folder-path: ${{env.APP_PATH}}
+      - name: Dotnet Audit
+        id: audit
+        run: |
+          dotnet list $APP_PATH package --vulnerable --include-transitive > output.txt
+          cat output.txt
+          if grep -q "has the following vulnerable packages" output.txt; then
+            echo "::error ::Dotnet Audit found vulnerable packages"
+            exit 1
+          fi
+
+  retirejs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/build-dotnet-app
+        with:
+          folder-path: ${{env.APP_PATH}}
+      - name: Run RetireJS
+        run: |
+          if ! npx retire --path $APP_PATH --severity low --deep; then
+            echo "::error ::RetireJS found vulnerable packages"
+            exit 1
+          fi
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+      - name: "Dependency Review"
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: low
+          #allow-licenses: MIT
+          #deny-licenses: AGPL
+
